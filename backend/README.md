@@ -1,4 +1,4 @@
-# Neo4j Python Docker Setup
+# FastCTX Back End
 
 This project provides a Docker Compose setup for running a Neo4j database with a Python application using uv for package management.
 
@@ -9,30 +9,40 @@ This project provides a Docker Compose setup for running a Neo4j database with a
 
 ## Quick Start
 
+0. **Set up environment variables:**
+
+```bash
+cp .env.tpl .env
+# Replace the op:// URLs as necessary
+```
+
+**Key Environment Variables**
+
+- `GEMINI_API_KEY`: The API key for Google Gemini.
+
 1. **Build and start the services:**
-   ```bash
-   docker-compose up --build
-   ```
+
+```bash
+make up
+```
 
 2. **Access Neo4j Browser:**
-   - URL: http://localhost:7474
-   - Username: `neo4j`
-   - Password: `password123`
 
-3. **Check the Python application logs:**
-   ```bash
-   docker-compose logs -f python-app
-   ```
+- URL: http://localhost:7474
+- Username: `neo4j`
+- Password: `password123`
 
 ## Configuration
 
 ### Neo4j
+
 - **HTTP Port**: 7474
 - **Bolt Port**: 7687
 - **Username**: neo4j
 - **Password**: password123 (change this in production!)
 
 ### Python Application
+
 - **Port**: 8000
 - **Environment Variables**:
   - `NEO4J_URI`: bolt://neo4j:7687
@@ -48,24 +58,25 @@ uv add package-name
 ```
 
 Then rebuild the Docker container:
+
 ```bash
-docker-compose up --build python-app
+make up
 ```
 
 ## Useful Commands
 
 ```bash
 # Start services in background
-docker-compose up -d
+make up
 
 # Stop services
-docker-compose down
+docker compose down
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Rebuild specific service
-docker-compose build python-app
+docker compose build app
 
 # Execute commands in running container
 docker-compose exec python-app bash
