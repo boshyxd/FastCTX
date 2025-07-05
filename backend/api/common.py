@@ -28,9 +28,11 @@ def setup_llm_transformer() -> LLMGraphTransformer:
     Sets up a graph transformer with an LLM.
     """
     api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY environment variable is required")
     llm = ChatGoogleGenerativeAI(
         model=MODEL,
-        google_api_key=api_key,  # or pass directly
+        google_api_key=api_key,
         temperature=0,
     )
 
