@@ -1,0 +1,21 @@
+[project]
+name = "fastctx"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "langchain",
+    "neo4j",
+    "langchain-community",
+    "langchain-text-splitters",
+    "openai",
+    "modelcontextprotocol",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-mock",
+    "httpx",
+    "langchain-openai",
+]
