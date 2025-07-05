@@ -1,6 +1,5 @@
 import asyncio
 import os
-from typing import NamedTuple
 
 import aiofiles
 import structlog
@@ -15,6 +14,9 @@ MODEL = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
 
 
 def setup_llm_transformer() -> LLMGraphTransformer:
+    """
+    Sets up a graph transformer with an LLM.
+    """
     api_key = os.getenv("GEMINI_API_KEY")
     llm = ChatGoogleGenerativeAI(
         model=MODEL,
@@ -30,6 +32,9 @@ def setup_llm_transformer() -> LLMGraphTransformer:
 
 
 def get_neo4j_graph() -> Neo4jGraph:
+    """
+    Connects to Neo4j and sets up a graph context.
+    """
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     # We already have env vars set up for username and password
 
@@ -40,12 +45,16 @@ def get_neo4j_graph() -> Neo4jGraph:
     return graph
 
 
-class LoadedFile(NamedTuple):
-    contents: str
-    filename: str
+# class LoadedFile(NamedTuple):
+#     contents: str
+#     filename: str
 
 
 async def load_document(filename: str) -> Document | None:
+    """
+    Loads in file from the filesystem async. Converts it to a Langchain Document
+    """
+
     contents: str
     try:
         async with aiofiles.open(filename) as f:
@@ -54,7 +63,7 @@ async def load_document(filename: str) -> Document | None:
         await logger.awarning("Couldn't decode %s to unicode.", filename)
         return None
 
-    loaded_file = LoadedFile(contents, filename)
+    # loaded_file = LoadedFile(contents, filename)
 
     document = Document(page_content=contents, metadata={"filename": filename})
 
@@ -83,6 +92,8 @@ async def main():
                     await logger.ainfo("Added load_file task for %s", file_path)
         else:
             await logger.awarning("Demo directory %s does not exist", demo_dir)
+
+    # Extract loaded documents
 
     documents: list[Document] = [
         doc
