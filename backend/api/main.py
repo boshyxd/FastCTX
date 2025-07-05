@@ -90,7 +90,6 @@ async def query_natural_language(
     graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
 ):
     """Process a natural language query and convert it to Cypher"""
-    graph = get_neo4j_graph()
 
     # Use the graph's natural language query capability
     # This requires the graph to have been set up with an LLM
