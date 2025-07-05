@@ -46,7 +46,7 @@ services:
         condition: service_healthy
 
     volumes:
-      - "../Java-Hello-World-Enterprise-Edition/:/demo"
+      - "./demo/:/demo"
     networks:
       - neo4j-network
     profiles:

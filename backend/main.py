@@ -1,18 +1,23 @@
+import asyncio
 import os
+from typing import NamedTuple
 
 import aiofiles
 import structlog
+from langchain_core.documents import Document
 from langchain_experimental.graph_transformers import LLMGraphTransformer
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_neo4j import Neo4jGraph
 
-logger = structlog.stdlib.get_logger("neo4j-bullshit")
+logger = structlog.stdlib.get_logger("fastctx")
+
+MODEL = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
 
 
-def setup_llm_transformer():
+def setup_llm_transformer() -> LLMGraphTransformer:
     api_key = os.getenv("GEMINI_API_KEY")
     llm = ChatGoogleGenerativeAI(
-        model="gemini-pro",
+        model=MODEL,
         google_api_key=api_key,  # or pass directly
         temperature=0,
     )
@@ -24,28 +29,80 @@ def setup_llm_transformer():
     return llm_transformer
 
 
-def get_neo4j_graph():
+def get_neo4j_graph() -> Neo4jGraph:
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     # We already have env vars set up for username and password
 
-    graph_db = Neo4jGraph(refresh_schema=False)
+    graph = Neo4jGraph(refresh_schema=False)
 
     logger.info("Connected to database at %s", uri)
 
+    return graph
 
-async def load_file(filename: str):
+
+class LoadedFile(NamedTuple):
     contents: str
-    async with aiofiles.open("filename") as f:
-        contents = await f.read()
-
-    return contents
+    filename: str
 
 
-def main():
+async def load_document(filename: str) -> Document | None:
+    contents: str
+    try:
+        async with aiofiles.open(filename) as f:
+            contents = await f.read()
+    except UnicodeDecodeError:
+        await logger.awarning("Couldn't decode %s to unicode.", filename)
+        return None
+
+    loaded_file = LoadedFile(contents, filename)
+
+    document = Document(page_content=contents, metadata={"filename": filename})
+
+    await logger.ainfo(
+        "Got document.", size=len(document.page_content), **document.metadata
+    )
+    return document
+
+
+async def main():
     """Main application entry point"""
-    get_neo4j_graph()
+    graph = get_neo4j_graph()
     llm_transformer = setup_llm_transformer()
+    document_tasks: list[asyncio.Task[Document | None]] = []
+    async with asyncio.TaskGroup() as file_tg:
+        # Walk the /demo directory and add load_file tasks
+        demo_dir = "/demo"
+        if os.path.exists(demo_dir):
+            for root, _, files in os.walk(demo_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    document_task = file_tg.create_task(
+                        load_document(file_path)
+                    )
+                    document_tasks.append(document_task)
+                    await logger.ainfo("Added load_file task for %s", file_path)
+        else:
+            await logger.awarning("Demo directory %s does not exist", demo_dir)
+
+    documents: list[Document] = [
+        doc
+        for doc in [document.result() for document in document_tasks]
+        if doc is not None
+    ]
+
+    await logger.ainfo("Documents loaded.", num_documents=len(documents))
+
+    graph_documents = await llm_transformer.aconvert_to_graph_documents(
+        documents
+    )
+
+    await logger.ainfo("Documents converted to graph.")
+
+    # Why the hell are these guys using `List` and not `list`
+    graph.add_graph_documents(graph_documents)  # pyright: ignore
+
+    await logger.ainfo("Documents added to neo4j.")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
