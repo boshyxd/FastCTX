@@ -1,16 +1,21 @@
-import os
-from functools import cache
-from typing import Any
+from typing import Annotated, Any
 
-import structlog
+import speedbeaver
 from fastapi import FastAPI, HTTPException
+from fastapi.params import Depends
 from fastapi_mcp import FastApiMCP
-from langchain_neo4j import Neo4jGraph
+from langchain_neo4j.graphs.neo4j_graph import Neo4jGraph
 from pydantic import BaseModel
+from pydantic.functional_validators import model_validator
 
-logger = structlog.stdlib.get_logger("fastctx-api")
+from api.common import get_neo4j_graph
+
+LOGGER_NAME = "fastctx-api"
+
+logger = speedbeaver.get_logger(LOGGER_NAME)
 
 app = FastAPI(title="FastCTX API")
+speedbeaver.quick_configure(app, logger_name=LOGGER_NAME)
 
 
 class CypherQuery(BaseModel):
@@ -27,42 +32,53 @@ class NaturalLanguageQuery(BaseModel):
     context: str | None = None
 
 
-@cache
-def get_neo4j_graph() -> Neo4jGraph:
-    """
-    Connects to Neo4j and sets up a graph context.
-    """
-    uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    graph = Neo4jGraph(refresh_schema=True)
-    logger.info("Connected to Neo4J database at %s", uri)
-    return graph
+class ProjectSource(BaseModel):
+    """Request model for the source of a loaded project"""
+
+    github_url: str | None
+
+    @model_validator(mode="before")
+    def check_project_source(self):
+        requires_one_of = self.model_dump()
+        if not any(requires_one_of.values()):
+            raise ValueError(
+                f"Missing one of: {', '.join(requires_one_of.keys())}"
+            )
+        return self
+
+
+@app.post("/loader")
+async def load_codebase(
+    src: ProjectSource, graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)]
+):
+    pass
 
 
 @app.post("/query/cypher")
-async def query_cypher(query_request: CypherQuery):
+async def query_cypher(
+    query_request: CypherQuery,
+    graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
+):
     """Execute a Cypher query against the Neo4j database"""
-    try:
-        graph = get_neo4j_graph()
 
-        # Execute the query
-        result = graph.query(
-            query_request.query, params=query_request.parameters or {}
-        )
+    # Execute the query
+    result = graph.query(
+        query_request.query, params=query_request.parameters or {}
+    )
 
-        return {
-            "query": query_request.query,
-            "parameters": query_request.parameters,
-            "results": result,
-            "count": len(result) if isinstance(result, list) else None,
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Query failed: {str(e)}"
-        ) from e
+    return {
+        "query": query_request.query,
+        "parameters": query_request.parameters,
+        "results": result,
+        "count": len(result) if isinstance(result, list) else None,
+    }
 
 
 @app.post("/query/natural")
-async def query_natural_language(query_request: NaturalLanguageQuery):
+async def query_natural_language(
+    query_request: NaturalLanguageQuery,
+    graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
+):
     """Process a natural language query and convert it to Cypher"""
     try:
         graph = get_neo4j_graph()
@@ -93,11 +109,11 @@ async def query_natural_language(query_request: NaturalLanguageQuery):
 
 
 @app.get("/query/examples")
-async def get_query_examples():
+async def get_query_examples(
+    graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
+):
     """Get example queries for the current database schema"""
     try:
-        graph = get_neo4j_graph()
-
         # Get some basic information about the database
         node_count = graph.query("MATCH (n) RETURN COUNT(n) as count")[0][
             "count"
@@ -155,7 +171,9 @@ async def get_query_examples():
 
 
 @app.get("/schema")
-async def get_schema():
+async def get_schema(
+    graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
+):
     """Get the current Neo4j database schema"""
     try:
         graph = get_neo4j_graph()
