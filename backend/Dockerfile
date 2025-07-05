@@ -21,4 +21,4 @@ COPY . .
 EXPOSE 8000
 
 # Use uv to run the application
-ENTRYPOINT [ "/app/entrypoint.sh" ]
+CMD ["sh", "-c", "ls /demo && uv run python main.py"]
