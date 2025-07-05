@@ -116,9 +116,12 @@ async def _download_file(url: str, out_filename: os.PathLike):
         )
 
 
-async def download_github_project(url: str, dest_directory: os.PathLike):
+async def download_github_project(
+    url: str, dest_directory: os.PathLike, branch: str = "main"
+):
     """
-    Downloads a GitHub repository as a zip file and extracts it to the specified directory.
+    Downloads a GitHub repository as a zip file and extracts it 
+    to the specified directory.
     """
     # Create a temporary directory
     if not url.startswith("https://github.com"):
@@ -129,9 +132,8 @@ async def download_github_project(url: str, dest_directory: os.PathLike):
         clone_destination = Path(tmpdirname) / "repo.zip"
 
         await _download_file(
-            f"{url}/archive/refs/heads/main.zip", clone_destination
+            f"{url}/archive/refs/heads/{branch}.zip", clone_destination
         )
-
         # Extract the zip file to the destination directory
         shutil.unpack_archive(str(clone_destination), dest_directory)
 
