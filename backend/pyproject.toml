@@ -5,11 +5,15 @@ description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
     "aiofiles>=24.1.0",
+    "fastapi-mcp>=0.3.4",
+    "fastapi[standard]>=0.115.14",
+    "httpx>=0.28.1",
     "langchain-anthropic>=0.3.17",
     "langchain-experimental>=0.3.4",
     "langchain-google-genai>=2.1.6",
+    "langchain-mcp-adapters>=0.1.8",
     "langchain-neo4j>=0.4.0",
-    "langchain-openai>=0.3.0",
+    "langgraph>=0.5.1",
     "neo4j>=5.28.1",
     "neo4j-graphrag>=1.8.0",
     "openai>=1.93.0",

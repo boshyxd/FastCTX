@@ -1,6 +1,5 @@
 import asyncio
 import os
-from typing import NamedTuple
 
 import aiofiles
 import structlog
@@ -17,33 +16,15 @@ LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini")
 
 
 def setup_llm_transformer() -> LLMGraphTransformer:
-    if LLM_PROVIDER == "openrouter":
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise ValueError("OPENROUTER_API_KEY environment variable not set")
-        
-        llm = ChatOpenAI(
-            model=MODEL,
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-            temperature=0,
-            default_headers={
-                "HTTP-Referer": "http://localhost",  # Optional, for tracking
-                "X-Title": "FastCTX"  # Optional, for tracking
-            }
-        )
-        logger.info("OpenRouter LLM set up with model: %s", MODEL)
-    else:  # Default to Gemini
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable not set")
-            
-        llm = ChatGoogleGenerativeAI(
-            model=MODEL,
-            google_api_key=api_key,
-            temperature=0,
-        )
-        logger.info("Gemini LLM set up with model: %s", MODEL)
+    """
+    Sets up a graph transformer with an LLM.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    llm = ChatGoogleGenerativeAI(
+        model=MODEL,
+        google_api_key=api_key,  # or pass directly
+        temperature=0,
+    )
 
     llm_transformer = LLMGraphTransformer(llm=llm)
 
@@ -51,6 +32,9 @@ def setup_llm_transformer() -> LLMGraphTransformer:
 
 
 def get_neo4j_graph() -> Neo4jGraph:
+    """
+    Connects to Neo4j and sets up a graph context.
+    """
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     # We already have env vars set up for username and password
 
@@ -61,12 +45,16 @@ def get_neo4j_graph() -> Neo4jGraph:
     return graph
 
 
-class LoadedFile(NamedTuple):
-    contents: str
-    filename: str
+# class LoadedFile(NamedTuple):
+#     contents: str
+#     filename: str
 
 
 async def load_document(filename: str) -> Document | None:
+    """
+    Loads in file from the filesystem async. Converts it to a Langchain Document
+    """
+
     contents: str
     try:
         async with aiofiles.open(filename) as f:
@@ -75,7 +63,7 @@ async def load_document(filename: str) -> Document | None:
         await logger.awarning("Couldn't decode %s to unicode.", filename)
         return None
 
-    loaded_file = LoadedFile(contents, filename)
+    # loaded_file = LoadedFile(contents, filename)
 
     document = Document(page_content=contents, metadata={"filename": filename})
 
@@ -105,6 +93,8 @@ async def main():
         else:
             await logger.awarning("Demo directory %s does not exist", demo_dir)
 
+    # Extract loaded documents
+
     documents: list[Document] = [
         doc
         for doc in [document.result() for document in document_tasks]
@@ -120,7 +110,7 @@ async def main():
     await logger.ainfo("Documents converted to graph.")
 
     # Why the hell are these guys using `List` and not `list`
-    graph.add_graph_documents(graph_documents)  # pyright: ignore
+    graph.add_graph_documents(graph_documents, include_source=True)  # pyright: ignore
 
     await logger.ainfo("Documents added to neo4j.")
 
