@@ -1,0 +1,63 @@
+[project]
+name = "neo4j-playground"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "aiofiles>=24.1.0",
+    "langchain-anthropic>=0.3.17",
+    "langchain-experimental>=0.3.4",
+    "langchain-google-genai>=2.1.6",
+    "langchain-neo4j>=0.4.0",
+    "neo4j>=5.28.1",
+    "neo4j-graphrag>=1.8.0",
+    "openai>=1.93.0",
+    "structlog>=25.4.0",
+]
+
+
+[dependency-groups]
+test = ["httpx>=0.28.1", "pytest>=8.3.5", "pytest-asyncio>=0.26.0"]
+dev = ["pyright>=1.1.398", "ruff>=0.11.2"]
+
+[tool.ruff]
+line-length = 80
+
+[tool.ruff.lint]
+select = [
+  # pycodestyle
+  "E",
+  # Pyflakes
+  "F",
+  # pyupgrade
+  "UP",
+  # flake8-bugbear
+  "B",
+  # flake8-simplify
+  "SIM",
+  # isort
+  "I",
+  # fastapi
+  "FAST",
+]
+extend-select = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["speedbeaver", "tests"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+include = ["**/*.py"]
+exclude = ["**/node_modules", "**/__pycache__"]
+pythonVersion = "3.11"
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "session"
+asyncio_mode = "auto"
+log_cli = true
+log_cli_level = "FATAL"
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "serial",
+]
