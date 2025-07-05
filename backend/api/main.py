@@ -93,8 +93,7 @@ async def query_natural_language(
 
     # Use the graph's natural language query capability
     # This requires the graph to have been set up with an LLM
-    result = graph.query(
-        f"""Based on the following question about the graph database:
+    prompt = f"""Based on the following question about the graph database:
         
         Question: {query_request.question}
         
@@ -102,13 +101,11 @@ async def query_natural_language(
         
         Please provide a relevant Cypher query and execute it to answer the question.
         """
-    )
 
     return {
         "question": query_request.question,
         "context": query_request.context,
-        "results": result,
-        "count": len(result) if isinstance(result, list) else None,
+        "prompt": prompt,
     }
 
 
