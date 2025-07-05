@@ -2,6 +2,4 @@
 
 set -euxo pipefail
 
-ls /demo
-
-/app/.venv/bin/python main.py
+/app/.venv/bin/python /app/run.py

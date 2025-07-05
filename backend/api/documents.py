@@ -3,7 +3,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated  # pyright: ignore
 
 import aiofiles
 import httpx
@@ -41,11 +41,11 @@ async def load_document(filename: str, **kwargs) -> Document | None:
     return document
 
 
-async def load_documents(
-    root_dir: os.PathLike,
-) -> list[Document]:
+async def load_documents(root_dir: os.PathLike, **metadata) -> list[Document]:
     """
     Converts a tree of files at a given `root_dir` into Langchain documents.
+
+    metadata specifies metadata to add to each document.
     """
     if not os.path.exists(root_dir):
         await logger.awarning("%s is nonexistent.")
@@ -56,9 +56,11 @@ async def load_documents(
         for root, _, files in os.walk(root_dir):
             for file in files:
                 file_path = os.path.join(root, file)
-                document_task = file_tg.create_task(load_document(file_path))
+                document_task = file_tg.create_task(
+                    load_document(file_path, **metadata)
+                )
                 document_tasks.append(document_task)
-                await logger.ainfo("Added load_file task for %s", file_path)
+                await logger.adebug("Added load_file task for %s", file_path)
 
     # Extract loaded documents
 
@@ -68,9 +70,28 @@ async def load_documents(
         if doc is not None
     ]
 
-    await logger.ainfo("Documents loaded.", num_documents=len(documents))
+    await logger.adebug("Documents loaded.", num_documents=len(documents))
 
     return documents
+
+
+async def insert_documents(
+    documents: list[Document],  # pyright: ignore
+    llm_transformer: Annotated[
+        LLMGraphTransformer, Depends(setup_llm_transformer)
+    ],
+    graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
+):
+    graph_documents = await llm_transformer.aconvert_to_graph_documents(
+        documents
+    )
+
+    await logger.adebug("Documents converted to graph.")
+
+    # Why the hell are these guys using `List` and not `list`
+    graph.add_graph_documents(graph_documents, include_source=True)  # pyright: ignore
+
+    await logger.adebug("Documents inserted.")
 
 
 async def _download_file(url: str, out_filename: os.PathLike):
@@ -107,12 +128,14 @@ async def download_github_project(url: str, dest_directory: os.PathLike):
         # Define paths
         clone_destination = Path(tmpdirname) / "repo.zip"
 
-        await _download_file(url, clone_destination)
+        await _download_file(
+            f"{url}/archive/refs/heads/main.zip", clone_destination
+        )
 
         # Extract the zip file to the destination directory
         shutil.unpack_archive(str(clone_destination), dest_directory)
 
-    await logger.ainfo(
+    await logger.adebug(
         "Downloaded and extracted repository from %s to %s", url, dest_directory
     )
 
@@ -134,3 +157,4 @@ async def load_github_project(
         project_src_location = Path(project_src_directory)
         await download_github_project(url, project_src_location)
         documents = await load_documents(project_src_location)
+        await insert_documents(documents, llm_transformer, graph)

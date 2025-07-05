@@ -1,14 +1,17 @@
 from typing import Annotated, Any
 
 import speedbeaver
-from fastapi import FastAPI, HTTPException
+import uvicorn
+from fastapi import FastAPI
 from fastapi.params import Depends
 from fastapi_mcp import FastApiMCP
+from langchain_experimental.graph_transformers.llm import LLMGraphTransformer
 from langchain_neo4j.graphs.neo4j_graph import Neo4jGraph
 from pydantic import BaseModel
 from pydantic.functional_validators import model_validator
 
-from api.common import get_neo4j_graph
+from api.common import get_neo4j_graph, setup_llm_transformer
+from api.documents import load_github_project
 
 LOGGER_NAME = "fastctx-api"
 
@@ -47,11 +50,18 @@ class ProjectSource(BaseModel):
         return self
 
 
-@app.post("/loader")
+@app.post("/loader", status_code=201)
 async def load_codebase(
-    src: ProjectSource, graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)]
+    src: ProjectSource,
+    graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
+    llm_transformer: Annotated[
+        LLMGraphTransformer, Depends(setup_llm_transformer)
+    ],
 ):
-    pass
+    if src.github_url:
+        await load_github_project(src.github_url, llm_transformer, graph)
+
+    return {"message": "Project loaded successfully."}
 
 
 @app.post("/query/cypher")
@@ -80,32 +90,27 @@ async def query_natural_language(
     graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
 ):
     """Process a natural language query and convert it to Cypher"""
-    try:
-        graph = get_neo4j_graph()
+    graph = get_neo4j_graph()
 
-        # Use the graph's natural language query capability
-        # This requires the graph to have been set up with an LLM
-        result = graph.query(
-            f"""Based on the following question about the graph database:
-            
-            Question: {query_request.question}
-            
-            Context: {query_request.context or "No additional context provided"}
-            
-            Please provide a relevant Cypher query and execute it to answer the question.
-            """
-        )
+    # Use the graph's natural language query capability
+    # This requires the graph to have been set up with an LLM
+    result = graph.query(
+        f"""Based on the following question about the graph database:
+        
+        Question: {query_request.question}
+        
+        Context: {query_request.context or "No additional context provided"}
+        
+        Please provide a relevant Cypher query and execute it to answer the question.
+        """
+    )
 
-        return {
-            "question": query_request.question,
-            "context": query_request.context,
-            "results": result,
-            "count": len(result) if isinstance(result, list) else None,
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Natural language query failed: {str(e)}"
-        ) from e
+    return {
+        "question": query_request.question,
+        "context": query_request.context,
+        "results": result,
+        "count": len(result) if isinstance(result, list) else None,
+    }
 
 
 @app.get("/query/examples")
@@ -113,61 +118,54 @@ async def get_query_examples(
     graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
 ):
     """Get example queries for the current database schema"""
-    try:
-        # Get some basic information about the database
-        node_count = graph.query("MATCH (n) RETURN COUNT(n) as count")[0][
-            "count"
-        ]
-        relationship_count = graph.query(
-            "MATCH ()-[r]->() RETURN COUNT(r) as count"
-        )[0]["count"]
+    # Get some basic information about the database
+    node_count = graph.query("MATCH (n) RETURN COUNT(n) as count")[0]["count"]
+    relationship_count = graph.query(
+        "MATCH ()-[r]->() RETURN COUNT(r) as count"
+    )[0]["count"]
 
-        # Get node labels
-        labels_result = graph.query("CALL db.labels()")
-        labels = [record["label"] for record in labels_result]
+    # Get node labels
+    labels_result = graph.query("CALL db.labels()")
+    labels = [record["label"] for record in labels_result]
 
-        # Get relationship types
-        rel_types_result = graph.query("CALL db.relationshipTypes()")
-        rel_types = [record["relationshipType"] for record in rel_types_result]
+    # Get relationship types
+    rel_types_result = graph.query("CALL db.relationshipTypes()")
+    rel_types = [record["relationshipType"] for record in rel_types_result]
 
-        # Generate example queries
-        examples = [
+    # Generate example queries
+    examples = [
+        {
+            "description": "Get all nodes",
+            "cypher": "MATCH (n) RETURN n LIMIT 10",
+        },
+        {
+            "description": "Count nodes by label",
+            "cypher": "MATCH (n) RETURN labels(n) as labels, COUNT(n) as count",
+        },
+        {
+            "description": "Get all relationships",
+            "cypher": "MATCH (a)-[r]->(b) RETURN type(r) as relationship_type, COUNT(r) as count",
+        },
+    ]
+
+    # Add label-specific examples if we have labels
+    if labels:
+        examples.append(
             {
-                "description": "Get all nodes",
-                "cypher": "MATCH (n) RETURN n LIMIT 10",
-            },
-            {
-                "description": "Count nodes by label",
-                "cypher": "MATCH (n) RETURN labels(n) as labels, COUNT(n) as count",
-            },
-            {
-                "description": "Get all relationships",
-                "cypher": "MATCH (a)-[r]->(b) RETURN type(r) as relationship_type, COUNT(r) as count",
-            },
-        ]
+                "description": f"Get all {labels[0]} nodes",
+                "cypher": f"MATCH (n:{labels[0]}) RETURN n LIMIT 10",
+            }
+        )
 
-        # Add label-specific examples if we have labels
-        if labels:
-            examples.append(
-                {
-                    "description": f"Get all {labels[0]} nodes",
-                    "cypher": f"MATCH (n:{labels[0]}) RETURN n LIMIT 10",
-                }
-            )
-
-        return {
-            "database_stats": {
-                "node_count": node_count,
-                "relationship_count": relationship_count,
-                "labels": labels,
-                "relationship_types": rel_types,
-            },
-            "example_queries": examples,
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to generate examples: {str(e)}"
-        ) from e
+    return {
+        "database_stats": {
+            "node_count": node_count,
+            "relationship_count": relationship_count,
+            "labels": labels,
+            "relationship_types": rel_types,
+        },
+        "example_queries": examples,
+    }
 
 
 @app.get("/schema")
@@ -175,20 +173,17 @@ async def get_schema(
     graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
 ):
     """Get the current Neo4j database schema"""
-    try:
-        graph = get_neo4j_graph()
-        # Refresh the schema to get the latest information
-        graph.refresh_schema()
+    graph = get_neo4j_graph()
+    # Refresh the schema to get the latest information
+    graph.refresh_schema()
 
-        # Get the schema information
-        schema_info = {
-            "structured_schema": graph.structured_schema,
-            "schema": graph.schema,
-        }
+    # Get the schema information
+    schema_info = {
+        "structured_schema": graph.structured_schema,
+        "schema": graph.schema,
+    }
 
-        return schema_info
-    except Exception as e:
-        return {"error": f"Failed to retrieve schema: {str(e)}"}
+    return schema_info
 
 
 mcp = FastApiMCP(
@@ -197,3 +192,6 @@ mcp = FastApiMCP(
     description="API for FastCTX - Get better context from your code.",
 )
 mcp.mount()
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
