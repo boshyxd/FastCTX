@@ -48,7 +48,7 @@ async def load_documents(root_dir: os.PathLike, **metadata) -> list[Document]:
     metadata specifies metadata to add to each document.
     """
     if not os.path.exists(root_dir):
-        await logger.awarning("%s is nonexistent.")
+        await logger.awarning("%s is nonexistent.", root_dir)
         return []
     document_tasks: list[asyncio.Task[Document | None]] = []
     async with asyncio.TaskGroup() as file_tg:
