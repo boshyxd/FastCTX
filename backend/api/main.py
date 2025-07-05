@@ -173,7 +173,6 @@ async def get_schema(
     graph: Annotated[Neo4jGraph, Depends(get_neo4j_graph)],
 ):
     """Get the current Neo4j database schema"""
-    graph = get_neo4j_graph()
     # Refresh the schema to get the latest information
     graph.refresh_schema()
 
