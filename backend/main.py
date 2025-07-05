@@ -110,7 +110,7 @@ async def main():
     await logger.ainfo("Documents converted to graph.")
 
     # Why the hell are these guys using `List` and not `list`
-    graph.add_graph_documents(graph_documents)  # pyright: ignore
+    graph.add_graph_documents(graph_documents, include_source=True)  # pyright: ignore
 
     await logger.ainfo("Documents added to neo4j.")
 
