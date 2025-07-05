@@ -132,51 +132,265 @@ const initialEdges: Edge[] = [
 interface MCPExecution {
   id: string
   command: string
+  tool?: string
   status: 'pending' | 'running' | 'success' | 'error'
   output?: string
   error?: string
+  suggestion?: string
   timestamp: Date
+  details?: {
+    filesAnalyzed?: number
+    nodesCreated?: number
+    edgesCreated?: number
+    matchesFound?: number
+    confidence?: number
+  }
 }
 
 export function GraphVisualization() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+  const [nodes, setNodes, onNodesChange] = useNodesState([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [showMiniMap, setShowMiniMap] = useState(true)
   const [mcpExecutions, setMcpExecutions] = useState<MCPExecution[]>([])
   const [mcpCommand, setMcpCommand] = useState('')
+  const [isInitializing, setIsInitializing] = useState(false)
+  const [initPath, setInitPath] = useState('/helloworld')
+  const [nodeDetails, setNodeDetails] = useState<any>(null)
+  const [availableTools, setAvailableTools] = useState<any[]>([])
+  const [showToolSuggestions, setShowToolSuggestions] = useState(false)
+  const [selectedTool, setSelectedTool] = useState<any>(null)
+  const [parameterValues, setParameterValues] = useState<Record<string, string>>({})
   
-  const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+  useEffect(() => {
+    fetch('http://localhost:8002/api/mcp/tools')
+      .then(res => res.json())
+      .then(data => {
+        console.log('Fetched MCP tools:', data.tools)
+        setAvailableTools(data.tools || [])
+      })
+      .catch(console.error)
+  }, [])
+
+  const onNodeClick = useCallback(async (event: React.MouseEvent, node: Node) => {
     setSelectedNode(node)
+    if (node.data.type === 'file' && node.data.content) {
+      setNodeDetails(node.data)
+    }
   }, [])
   
-  const executeMCPCommand = () => {
+  const handleCommandChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    console.log('Command changed:', value)
+    setMcpCommand(value)
+    setShowToolSuggestions(value.startsWith('/'))
+    console.log('Setting showToolSuggestions to:', value.startsWith('/'))
+    
+    // Check if a tool is already selected based on the command
+    if (value.startsWith('/')) {
+      const commandParts = value.split(' ')
+      const toolCommand = commandParts[0]
+      const tool = availableTools.find(t => t.command === toolCommand)
+      
+      if (tool && tool !== selectedTool) {
+        setSelectedTool(tool)
+        // Initialize parameter values for the selected tool
+        const newParamValues: Record<string, string> = {}
+        tool.params.forEach((param: string) => {
+          newParamValues[param] = parameterValues[param] || ''
+        })
+        setParameterValues(newParamValues)
+      } else if (!tool) {
+        setSelectedTool(null)
+      }
+    } else {
+      setSelectedTool(null)
+      setParameterValues({})
+    }
+  }
+  
+  const initializeGraph = async () => {
+    if (isInitializing) return
+    
+    setIsInitializing(true)
+    setNodes([])
+    setEdges([])
+    
+    const initExecution: MCPExecution = {
+      id: Date.now().toString(),
+      command: `initialize "${initPath}"`,
+      tool: 'file_scanner',
+      status: 'running',
+      timestamp: new Date(),
+      details: {
+        filesAnalyzed: 0,
+        nodesCreated: 0,
+        edgesCreated: 0
+      }
+    }
+    
+    setMcpExecutions(prev => [initExecution, ...prev])
+    
+    try {
+      const response = await fetch('http://localhost:8002/api/mcp/initialize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ path: initPath })
+      })
+      
+      const data = await response.json()
+      
+      const colors = ['#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899']
+      const baseX = 400
+      const baseY = 300
+      
+      const nodes: Node[] = data.nodes.map((node: any, index: number) => {
+        const angle = (index / data.nodes.length) * 2 * Math.PI
+        const distance = node.id === '0' ? 0 : 150 + (index % 3) * 50
+        
+        return {
+          id: node.id,
+          position: {
+            x: baseX + Math.cos(angle) * distance,
+            y: baseY + Math.sin(angle) * distance
+          },
+          data: {
+            label: node.label,
+            type: node.type === 'folder' ? 'entity' : 'document',
+            color: colors[index % colors.length],
+            ...node.data
+          },
+          type: 'custom'
+        }
+      })
+      
+      const edges: Edge[] = data.edges.map((edge: any) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+        style: {
+          stroke: edge.type === 'imports' ? '#10b981' : edge.type === 'depends' ? '#f59e0b' : '#ffffff',
+          strokeWidth: edge.type === 'contains' ? 1 : 2,
+          opacity: edge.type === 'contains' ? 0.3 : 0.8
+        },
+        animated: edge.type !== 'contains',
+        type: 'smoothstep'
+      }))
+      
+      setNodes(nodes)
+      setEdges(edges)
+      
+      setMcpExecutions(prev => prev.map(exec => 
+        exec.id === initExecution.id
+          ? {
+              ...exec,
+              status: 'success',
+              output: `Successfully analyzed ${data.stats.filesAnalyzed} files. Created ${data.stats.nodesCreated} nodes and ${data.stats.edgesCreated} connections.`,
+              details: data.stats
+            }
+          : exec
+      ))
+    } catch (error) {
+      setMcpExecutions(prev => prev.map(exec => 
+        exec.id === initExecution.id
+          ? {
+              ...exec,
+              status: 'error',
+              error: 'Failed to initialize graph'
+            }
+          : exec
+      ))
+    }
+    
+    setIsInitializing(false)
+  }
+  
+  const executeMCPCommand = async () => {
     if (!mcpCommand.trim()) return
     
-    // Add new execution
+    // Validate required parameters
+    if (selectedTool && selectedTool.params.length > 0) {
+      const requiredParams = ['path', 'file_path', 'query', 'symbol_name']
+      const missingRequired = selectedTool.params.filter((param: string) => 
+        requiredParams.includes(param) && !parameterValues[param]?.trim()
+      )
+      
+      if (missingRequired.length > 0) {
+        const errorExecution: MCPExecution = {
+          id: Date.now().toString(),
+          command: mcpCommand,
+          status: 'error',
+          error: `Missing required parameters: ${missingRequired.join(', ')}`,
+          timestamp: new Date()
+        }
+        setMcpExecutions(prev => [errorExecution, ...prev])
+        return
+      }
+    }
+    
+    // Build the full command with parameters if a tool is selected
+    let fullCommand = mcpCommand
+    if (selectedTool && selectedTool.params.length > 0) {
+      // Build command with parameter values
+      const paramArgs = selectedTool.params.map((param: string) => 
+        parameterValues[param] || ''
+      ).filter(val => val.trim() !== '')
+      
+      if (paramArgs.length > 0) {
+        fullCommand = `${selectedTool.command} ${paramArgs.join(' ')}`
+      }
+    }
+    
     const newExecution: MCPExecution = {
       id: Date.now().toString(),
-      command: mcpCommand,
+      command: fullCommand,
       status: 'running',
       timestamp: new Date()
     }
     
     setMcpExecutions(prev => [newExecution, ...prev])
     setMcpCommand('')
+    setSelectedTool(null)
+    setParameterValues({})
     
-    // Simulate MCP execution (will be replaced with actual MCP agent call)
-    setTimeout(() => {
+    try {
+      const response = await fetch('http://localhost:8002/api/mcp/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ command: fullCommand })
+      })
+      
+      const data = await response.json()
+      
       setMcpExecutions(prev => prev.map(exec => 
         exec.id === newExecution.id 
           ? { 
               ...exec, 
-              status: Math.random() > 0.3 ? 'success' : 'error',
-              output: Math.random() > 0.3 ? 'Command executed successfully. Graph updated.' : undefined,
-              error: Math.random() > 0.3 ? undefined : 'Failed to execute command: Connection timeout'
+              tool: data.tool,
+              status: data.status,
+              output: data.output,
+              error: data.error,
+              suggestion: data.suggestion,
+              details: data.details
             }
           : exec
       ))
-    }, 2000)
+    } catch (error) {
+      setMcpExecutions(prev => prev.map(exec => 
+        exec.id === newExecution.id
+          ? {
+              ...exec,
+              status: 'error',
+              error: 'Failed to execute command'
+            }
+          : exec
+      ))
+    }
   }
   
   return (
@@ -212,10 +426,10 @@ export function GraphVisualization() {
       <div className="relative z-10 flex h-full">
         {/* Animated sidebar */}
         <motion.div
-          initial={{ x: -320 }}
+          initial={{ x: -400 }}
           animate={{ x: 0 }}
           transition={{ type: "spring", damping: 25, stiffness: 120 }}
-          className="w-80 h-full bg-slate-900/60 backdrop-blur-xl border-r border-slate-800/50 overflow-hidden"
+          className="w-96 h-full bg-slate-900/60 backdrop-blur-xl border-r border-slate-800/50 overflow-hidden"
         >
           <div className="h-full flex flex-col">
             {/* Header */}
@@ -224,14 +438,46 @@ export function GraphVisualization() {
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                className="flex items-center gap-3 mb-6"
+                className="space-y-4"
               >
-                <div className="p-2 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-lg">
-                  <Network className="w-6 h-6 text-white" />
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-lg">
+                    <Network className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-bold text-white tracking-tight">FastCTX</h1>
+                    <p className="text-xs text-slate-400">Knowledge Graph Explorer</p>
+                  </div>
                 </div>
-                <div>
-                  <h1 className="text-xl font-bold text-white tracking-tight">FastCTX</h1>
-                  <p className="text-xs text-slate-400">Knowledge Graph Explorer</p>
+                
+                {/* Quick Initialize Section */}
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      value={initPath}
+                      onChange={(e) => setInitPath(e.target.value)}
+                      placeholder="Path to analyze..."
+                      className="bg-slate-800/50 border-slate-700/50 text-white placeholder:text-slate-500 text-sm flex-1"
+                    />
+                    <Button
+                      onClick={initializeGraph}
+                      disabled={isInitializing}
+                      size="sm"
+                      className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
+                    >
+                      {isInitializing ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Network className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+                  {nodes.length === 0 && !isInitializing && (
+                    <p className="text-[10px] text-slate-500">Initialize to build knowledge graph</p>
+                  )}
+                  {isInitializing && (
+                    <p className="text-[10px] text-blue-400">Building graph...</p>
+                  )}
                 </div>
               </motion.div>
             </div>
@@ -239,12 +485,12 @@ export function GraphVisualization() {
             {/* Main content area */}
             <div className="flex-1 px-6 overflow-y-auto">
               <Tabs defaultValue="info" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 bg-slate-800/30 backdrop-blur">
-                  <TabsTrigger value="info" className="data-[state=active]:bg-slate-700/50">
+                <TabsList className="grid w-full grid-cols-2 bg-slate-800/30 backdrop-blur border border-slate-700/50">
+                  <TabsTrigger value="info" className="data-[state=active]:bg-slate-700/50 data-[state=active]:text-white text-slate-300">
                     <Activity className="w-3 h-3 mr-1.5" />
                     Info
                   </TabsTrigger>
-                  <TabsTrigger value="controls" className="data-[state=active]:bg-slate-700/50">
+                  <TabsTrigger value="controls" className="data-[state=active]:bg-slate-700/50 data-[state=active]:text-white text-slate-300">
                     <Sparkles className="w-3 h-3 mr-1.5" />
                     Controls
                   </TabsTrigger>
@@ -284,7 +530,40 @@ export function GraphVisualization() {
                           <div className="text-xs text-slate-400 space-y-1">
                             <p>Node ID: <span className="font-mono text-slate-300">{selectedNode.id}</span></p>
                             <p>Type: <span className="text-slate-300">{selectedNode.data.type}</span></p>
+                            {selectedNode.data.path && (
+                              <p>Path: <span className="font-mono text-slate-300 text-[10px]">{selectedNode.data.path}</span></p>
+                            )}
                           </div>
+                          {selectedNode.data.content && (
+                            <>
+                              <Separator className="bg-slate-700/50" />
+                              <div className="space-y-2">
+                                <h4 className="text-xs font-semibold text-white">Code Preview</h4>
+                                <div className="bg-slate-900/50 rounded p-2 overflow-x-auto">
+                                  <pre className="text-[10px] text-slate-300 font-mono">{selectedNode.data.content}</pre>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                          {selectedNode.data.analysis && (
+                            <>
+                              <Separator className="bg-slate-700/50" />
+                              <div className="space-y-2">
+                                <h4 className="text-xs font-semibold text-white">Analysis</h4>
+                                <div className="text-[10px] text-slate-400 space-y-1">
+                                  {selectedNode.data.analysis.type && (
+                                    <p>Type: <span className="text-slate-300">{selectedNode.data.analysis.type}</span></p>
+                                  )}
+                                  {selectedNode.data.analysis.functions && (
+                                    <p>Functions: <span className="text-slate-300">{selectedNode.data.analysis.functions.join(', ')}</span></p>
+                                  )}
+                                  {selectedNode.data.analysis.imports && (
+                                    <p>Imports: <span className="text-slate-300">{selectedNode.data.analysis.imports.join(', ')}</span></p>
+                                  )}
+                                </div>
+                              </div>
+                            </>
+                          )}
                         </motion.div>
                       </Card>
                     ) : (
@@ -334,6 +613,40 @@ export function GraphVisualization() {
                         </div>
                       </div>
                     </Card>
+                    
+                    <Card className="bg-slate-800/30 backdrop-blur border-slate-700/50">
+                      <div className="p-4 space-y-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs font-medium text-slate-300">Initialize Graph</Label>
+                          <p className="text-xs text-slate-500">Build knowledge graph from codebase</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Input
+                            value={initPath}
+                            onChange={(e) => setInitPath(e.target.value)}
+                            placeholder="Enter path to analyze..."
+                            className="bg-slate-800/50 border-slate-700/50 text-white placeholder:text-slate-500 text-sm"
+                          />
+                          <Button
+                            onClick={initializeGraph}
+                            disabled={isInitializing}
+                            className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
+                          >
+                            {isInitializing ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Initializing...
+                              </>
+                            ) : (
+                              <>
+                                <Network className="w-4 h-4 mr-2" />
+                                Initialize
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
                   </motion.div>
                 </TabsContent>
               </AnimatePresence>
@@ -346,29 +659,129 @@ export function GraphVisualization() {
               <div className="flex items-center gap-2 mb-2">
                 <Terminal className="w-4 h-4 text-slate-400" />
                 <h3 className="text-sm font-semibold text-white">MCP Executor</h3>
+                <span className="text-xs text-slate-500">
+                  ({availableTools.length} tools available)
+                </span>
               </div>
               
               {/* Command input */}
-              <div className="flex gap-2">
-                <Input
-                  value={mcpCommand}
-                  onChange={(e) => setMcpCommand(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && executeMCPCommand()}
-                  placeholder="Enter MCP command..."
-                  className="bg-slate-800/50 border-slate-700/50 text-white placeholder:text-slate-500 font-mono text-sm"
-                />
-                <Button
-                  onClick={executeMCPCommand}
-                  size="icon"
-                  className="bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50"
-                >
-                  <Play className="w-4 h-4" />
-                </Button>
+              <div className="relative">
+                <div className="flex gap-2">
+                  <Input
+                    value={mcpCommand}
+                    onChange={handleCommandChange}
+                    onKeyPress={(e) => e.key === 'Enter' && executeMCPCommand()}
+                    placeholder="Enter command or type / for tools..."
+                    className="bg-slate-800/50 border-slate-700/50 text-white placeholder:text-slate-500 font-mono text-sm"
+                  />
+                  <Button
+                    onClick={executeMCPCommand}
+                    size="icon"
+                    className="bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50"
+                  >
+                    <Play className="w-4 h-4" />
+                  </Button>
+                </div>
+                
+                {/* Tool suggestions dropdown */}
+                {showToolSuggestions && mcpCommand.startsWith('/') && (
+                  <div className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-lg">
+                    {(() => {
+                      const filteredTools = availableTools.filter(tool => tool.command.toLowerCase().includes(mcpCommand.toLowerCase()))
+                      console.log('Available tools:', availableTools)
+                      console.log('MCP command:', mcpCommand)
+                      console.log('Filtered tools:', filteredTools)
+                      console.log('showToolSuggestions:', showToolSuggestions)
+                      return filteredTools.map((tool, index) => (
+                        <button
+                          key={index}
+                          onClick={() => {
+                            setMcpCommand(tool.command + ' ')
+                            setShowToolSuggestions(false)
+                            setSelectedTool(tool)
+                            // Initialize parameter values
+                            const newParamValues: Record<string, string> = {}
+                            tool.params.forEach((param: string) => {
+                              newParamValues[param] = ''
+                            })
+                            setParameterValues(newParamValues)
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-slate-700/50 transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-mono text-violet-400">{tool.command}</span>
+                            <span className="text-xs text-slate-500">{tool.params.join(', ')}</span>
+                          </div>
+                          <p className="text-xs text-slate-400 mt-0.5">{tool.description}</p>
+                        </button>
+                      ))
+                    })()}
+                    {mcpCommand === '/' && (
+                      <div className="px-3 py-2 text-xs text-slate-500 border-t border-slate-700">
+                        Type to filter tools or use natural language
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               
+              {/* Parameter inputs */}
+              {selectedTool && selectedTool.params.length > 0 && (
+                <div className="mt-3 p-3 bg-slate-800/30 border border-slate-700/50 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-violet-400">{selectedTool.command}</span>
+                      <span className="text-xs text-slate-500">Parameters</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedTool(null)
+                        setParameterValues({})
+                        setMcpCommand('')
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {selectedTool.params.map((param: string) => {
+                      const isRequired = ['path', 'file_path', 'query', 'symbol_name'].includes(param)
+                      const hasValue = parameterValues[param]?.trim() !== ''
+                      
+                      return (
+                        <div key={param} className="flex items-center gap-2">
+                          <label className="text-xs text-slate-400 min-w-[80px] flex items-center gap-1">
+                            {param}
+                            {isRequired && <span className="text-red-400">*</span>}:
+                          </label>
+                          <Input
+                            value={parameterValues[param] || ''}
+                            onChange={(e) => {
+                              setParameterValues(prev => ({
+                                ...prev,
+                                [param]: e.target.value
+                              }))
+                            }}
+                            onKeyPress={(e) => e.key === 'Enter' && executeMCPCommand()}
+                            placeholder={`Enter ${param}...`}
+                            className={`flex-1 h-8 bg-slate-900/50 border-slate-700/50 text-white placeholder:text-slate-600 text-xs ${
+                              isRequired && !hasValue ? 'border-red-900/50' : ''
+                            }`}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-2 text-xs text-slate-500">
+                    Press Enter to execute or click the play button
+                  </div>
+                </div>
+              )}
+              
               {/* Execution history */}
-              <div className="space-y-2 max-h-32 overflow-y-auto">
-                {mcpExecutions.slice(0, 3).map((execution) => (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {mcpExecutions.map((execution) => (
                   <div
                     key={execution.id}
                     className="px-3 py-2 bg-slate-800/30 rounded border border-slate-700/50"
@@ -384,12 +797,35 @@ export function GraphVisualization() {
                         <XCircle className="w-3 h-3 text-red-400 mt-0.5" />
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-mono text-slate-300 truncate">{execution.command}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-mono text-slate-300 truncate">{execution.command}</p>
+                          {execution.tool && (
+                            <Badge variant="outline" className="text-[10px] bg-slate-700/30 border-slate-600/50 text-slate-400">
+                              {execution.tool}
+                            </Badge>
+                          )}
+                        </div>
                         {execution.output && (
-                          <p className="text-xs text-green-400 mt-1">{execution.output}</p>
+                          <p className="text-xs text-green-400 mt-1 whitespace-pre-wrap">{execution.output}</p>
                         )}
                         {execution.error && (
                           <p className="text-xs text-red-400 mt-1">{execution.error}</p>
+                        )}
+                        {!execution.tool && execution.status === 'error' && (
+                          <p className="text-xs text-yellow-400 mt-1">💡 {execution.suggestion || "Try using '/' to see available tools"}</p>
+                        )}
+                        {execution.details && (
+                          <div className="flex gap-3 mt-1">
+                            {execution.details.filesAnalyzed !== undefined && (
+                              <span className="text-[10px] text-slate-500">📄 {execution.details.filesAnalyzed}</span>
+                            )}
+                            {execution.details.nodesCreated !== undefined && (
+                              <span className="text-[10px] text-slate-500">🔵 {execution.details.nodesCreated}</span>
+                            )}
+                            {execution.details.edgesCreated !== undefined && (
+                              <span className="text-[10px] text-slate-500">🔗 {execution.details.edgesCreated}</span>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -413,12 +849,19 @@ export function GraphVisualization() {
             fitView
             attributionPosition="bottom-left"
             className="bg-transparent"
+            defaultEdgeOptions={{
+              style: {
+                stroke: '#ffffff',
+                strokeWidth: 1.5
+              },
+              type: 'smoothstep'
+            }}
           >
             <Background 
               variant={BackgroundVariant.Dots} 
               gap={20} 
               size={1} 
-              color="#334155"
+              color="#1e293b"
             />
             <Controls 
               className="bg-slate-800/60 backdrop-blur-xl border-slate-700/50 shadow-lg"
