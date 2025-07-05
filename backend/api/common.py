@@ -18,7 +18,7 @@ def get_neo4j_graph() -> Neo4jGraph:
     Connects to Neo4j and sets up a graph context.
     """
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    graph = Neo4jGraph(refresh_schema=True)
+    graph = Neo4jGraph(url=uri, refresh_schema=True)
     logger.info("Connected to Neo4J database at %s", uri)
     return graph
 
