@@ -7,24 +7,45 @@ import structlog
 from langchain_core.documents import Document
 from langchain_experimental.graph_transformers import LLMGraphTransformer
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_neo4j import Neo4jGraph
 
 logger = structlog.stdlib.get_logger("fastctx")
 
 MODEL = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini")
 
 
 def setup_llm_transformer() -> LLMGraphTransformer:
-    api_key = os.getenv("GEMINI_API_KEY")
-    llm = ChatGoogleGenerativeAI(
-        model=MODEL,
-        google_api_key=api_key,  # or pass directly
-        temperature=0,
-    )
+    if LLM_PROVIDER == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable not set")
+        
+        llm = ChatOpenAI(
+            model=MODEL,
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            temperature=0,
+            default_headers={
+                "HTTP-Referer": "http://localhost",  # Optional, for tracking
+                "X-Title": "FastCTX"  # Optional, for tracking
+            }
+        )
+        logger.info("OpenRouter LLM set up with model: %s", MODEL)
+    else:  # Default to Gemini
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable not set")
+            
+        llm = ChatGoogleGenerativeAI(
+            model=MODEL,
+            google_api_key=api_key,
+            temperature=0,
+        )
+        logger.info("Gemini LLM set up with model: %s", MODEL)
 
     llm_transformer = LLMGraphTransformer(llm=llm)
-
-    logger.info("LLM set up.")
 
     return llm_transformer
 

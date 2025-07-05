@@ -9,6 +9,7 @@ dependencies = [
     "langchain-experimental>=0.3.4",
     "langchain-google-genai>=2.1.6",
     "langchain-neo4j>=0.4.0",
+    "langchain-openai>=0.3.0",
     "neo4j>=5.28.1",
     "neo4j-graphrag>=1.8.0",
     "openai>=1.93.0",

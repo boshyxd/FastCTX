@@ -18,7 +18,10 @@ cp .env.tpl .env
 
 **Key Environment Variables**
 
-- `GEMINI_API_KEY`: The API key for Google Gemini.
+- `LLM_PROVIDER`: The LLM provider to use (`gemini` or `openrouter`). Defaults to `gemini`.
+- `LLM_MODEL`: The model to use. Defaults to `gemini-2.0-flash`.
+- `GEMINI_API_KEY`: The API key for Google Gemini (required when using Gemini provider).
+- `OPENROUTER_API_KEY`: The API key for OpenRouter (required when using OpenRouter provider).
 
 1. **Build and start the services:**
 
@@ -33,6 +36,28 @@ make up
 - Password: `password123`
 
 ## Configuration
+
+### LLM Providers
+
+#### Google Gemini (Default)
+To use Google Gemini:
+```bash
+# Optional - already defaults to these values
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-2.0-flash
+# Required
+GEMINI_API_KEY=your_gemini_api_key
+```
+
+#### OpenRouter
+To use OpenRouter with Google Gemini 2.5 Pro:
+```bash
+LLM_PROVIDER=openrouter
+LLM_MODEL=google/gemini-2.5-pro-preview
+OPENROUTER_API_KEY=your_openrouter_api_key
+```
+
+Other available OpenRouter models can be found at [OpenRouter Models](https://openrouter.ai/models).
 
 ### Neo4j
 
